@@ -1,0 +1,104 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: |
+  aws-s3-lambda-transcribe-comprehend
+
+Globals:
+  Function:
+    CodeUri: src/
+    Runtime: python3.12
+    Architectures:
+      - arm64
+    Timeout: 500
+    MemorySize: 128
+    Tracing: Active
+    LoggingConfig:
+      LogFormat: JSON
+
+Resources:
+  RecordingsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: aws-s3-lambda-transcribe-comprehend-3
+
+  TranscribeFunction:
+    Type: AWS::Serverless::Function
+    Connectors:
+      S3Conn:
+        Properties:
+          Destination:
+            - Id: RecordingsBucket
+          Permissions:
+            - Read
+            - Write
+    Properties:
+      Handler: transcribe.lambda_handler
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Resource: '*'
+              Action:
+                - transcribe:StartTranscriptionJob
+      Events:
+        TranscribeBucketEvent:
+          Type: S3
+          Properties:
+            Bucket: !Ref RecordingsBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: transcribe-input/
+
+  # ComprehendRole:
+  #   Type: AWS::IAM::Role
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Version: '2012-10-17'
+  #       Statement:
+  #         - Effect: Allow
+  #           Principal:
+  #             Service: lambda.amazonaws.com
+  #           Action: 'sts:AssumeRole'
+  #     ManagedPolicyArns:
+  #       - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  #       - arn:aws:iam::aws:policy/ComprehendFullAccess
+  #     Policies:
+  #       - PolicyName: ComprehendBucketAccessPolicy
+  #         PolicyDocument:
+  #           Version: '2012-10-17'
+  #           Statement:
+  #             - Effect: Allow
+  #               Action:
+  #                 - 's3:GetObject'
+  #               Resource: !Join
+  #                 - ''
+  #                 - - 'arn:aws:s3:::'
+  #                   - !Ref RecordingsBucket
+  #                   - '/*'
+
+  ComprehendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: comprehend.lambda_handler
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Resource: '*'
+              Action:
+                - comprehend:DetectSentiment
+                - comprehend:StartSentimentDetectionJob
+                - iam:PassRole
+      Events:
+        ComprehendBucketEvent:
+          Type: S3
+          Properties:
+            Bucket: !Ref RecordingsBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: transcribe-output/
+        
